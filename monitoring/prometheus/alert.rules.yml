@@ -1,0 +1,77 @@
+groups:
+  - name: node_exporter_infrastructure_alerts
+    rules:
+      - alert: HostDown
+        expr: up{job=~"node-exporter|aws-ec2-nodes"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          tier: infrastructure
+        annotations:
+          summary: "Host {{ $labels.instance }} is unreachable"
+          description: "Instance {{ $labels.instance }} has been unreachable/down for more than 2 minutes. Node exporter target scrape has failed."
+          runbook_url: "https://internal-wiki.company.internal/runbooks/host-down"
+
+      - alert: HostHighCpuLoad
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "High CPU utilization on {{ $labels.instance }}"
+          description: "CPU load on {{ $labels.instance }} is currently {{ $value | printf \"%.2f\" }}% (> 85% for 5 minutes)."
+          runbook_url: "https://internal-wiki.company.internal/runbooks/cpu-exhaustion"
+
+      - alert: HostHighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "High memory utilization on {{ $labels.instance }}"
+          description: "RAM usage on {{ $labels.instance }} is {{ $value | printf \"%.2f\" }}% (> 90% for 5 minutes). Risk of Out-Of-Memory (OOM) killer terminating processes."
+          runbook_url: "https://internal-wiki.company.internal/runbooks/memory-exhaustion"
+
+      - alert: HostDiskSpaceFillingUp
+        expr: (1 - (node_filesystem_free_bytes{fstype=~"ext4|xfs",mountpoint="/"} / node_filesystem_size_bytes{fstype=~"ext4|xfs",mountpoint="/"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "High disk usage on {{ $labels.instance }}"
+          description: "Root partition filesystem usage on {{ $labels.instance }} is at {{ $value | printf \"%.2f\" }}% (> 85%). Free disk space is critically depleting."
+          runbook_url: "https://internal-wiki.company.internal/runbooks/disk-cleanup"
+
+      - alert: HostDiskPredictWillFillIn4Hours
+        expr: predict_linear(node_filesystem_free_bytes{fstype=~"ext4|xfs",mountpoint="/"}[1h], 4 * 3600) < 0
+        for: 10m
+        labels:
+          severity: critical
+          tier: infrastructure
+        annotations:
+          summary: "Disk predicted to fill within 4 hours on {{ $labels.instance }}"
+          description: "Based on 1-hour consumption trend, disk on {{ $labels.instance }} will fill up in less than 4 hours."
+          runbook_url: "https://internal-wiki.company.internal/runbooks/disk-cleanup"
+
+      - alert: HostNetworkReceiveErrors
+        expr: rate(node_network_receive_errs_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "Network interface receive packet errors on {{ $labels.instance }}"
+          description: "Interface {{ $labels.device }} on {{ $labels.instance }} is reporting network packet drop/error rate of {{ $value }} errors/sec."
+
+      - alert: HostSystemClockOutOfSync
+        expr: abs(node_timex_offset_seconds) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          tier: infrastructure
+        annotations:
+          summary: "System clock drift on {{ $labels.instance }}"
+          description: "Clock on {{ $labels.instance }} has drifted by more than 50 milliseconds. NTP sync may have failed."

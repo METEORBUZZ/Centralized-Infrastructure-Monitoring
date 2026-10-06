@@ -1,0 +1,47 @@
+global:
+  resolve_timeout: 5m
+  # In production, SMTP settings can be set here:
+  # smtp_smarthost: 'smtp.sendgrid.net:587'
+  # smtp_from: 'alerts@monitoring.company.internal'
+
+# Alert routing tree
+route:
+  group_by: ['alertname', 'cluster', 'service', 'tier']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'ops-team-default'
+  routes:
+    # Route critical alerts with shorter repeat interval
+    - match:
+        severity: critical
+      receiver: 'ops-team-critical'
+      repeat_interval: 1h
+    - match:
+        severity: warning
+      receiver: 'ops-team-warning'
+      repeat_interval: 6h
+
+# Inhibit warning alerts if a critical alert for the same instance is already firing
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['instance']
+
+receivers:
+  - name: 'ops-team-default'
+    webhook_configs:
+      - url: 'http://alert-receiver-mock:8080/alerts'
+        send_resolved: true
+
+  - name: 'ops-team-critical'
+    webhook_configs:
+      - url: 'http://alert-receiver-mock:8080/alerts/critical'
+        send_resolved: true
+
+  - name: 'ops-team-warning'
+    webhook_configs:
+      - url: 'http://alert-receiver-mock:8080/alerts/warning'
+        send_resolved: true

@@ -1,0 +1,73 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+# Alertmanager target configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "alertmanager:9093"
+
+rule_files:
+  - "/etc/prometheus/alert.rules.yml"
+
+scrape_configs:
+  # 1. Prometheus self-monitoring
+  - job_name: "prometheus"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # 2. Local Node Exporter (Monitoring Host)
+  - job_name: "node-exporter-local"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          role: "monitoring-node"
+          env: "production"
+
+  # 3. AWS EC2 Dynamic Service Discovery (Discovers EC2 instances in VPC with tag ScrapeJob=node-exporter)
+  # When running in AWS with IAM Role attached, this job automatically discovers workload targets!
+  - job_name: "aws-ec2-nodes"
+    ec2_sd_configs:
+      - region: "us-east-1"
+        port: 9100
+        filters:
+          - name: "tag:ScrapeJob"
+            values: ["node-exporter"]
+          - name: "instance-state-name"
+            values: ["running"]
+    relabel_configs:
+      # Use EC2 Private IP as the target address
+      - source_labels: [__meta_ec2_private_ip]
+        regex: "(.*)"
+        replacement: "${1}:9100"
+        target_label: __address__
+      # Populate instance label with EC2 Name tag
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: instance
+      # Add environment label
+      - source_labels: [__meta_ec2_tag_Environment]
+        target_label: environment
+      # Add role label
+      - source_labels: [__meta_ec2_tag_Role]
+        target_label: role
+      # Add instance type and AZ labels for multi-dimensional slicing
+      - source_labels: [__meta_ec2_instance_type]
+        target_label: instance_type
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: availability_zone
+
+  # 4. Fallback Static Targets (used for local Docker test environments / direct private IP targeting)
+  - job_name: "node-exporter-workloads"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets:
+          - "workload-1:9100"
+          - "workload-2:9100"
+        labels:
+          role: "workload"
+          environment: "production"

@@ -1,0 +1,11 @@
+aws_region               = "us-east-1"
+environment              = "production"
+vpc_cidr                 = "10.0.0.0/16"
+public_subnet_cidrs      = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs     = ["10.0.10.0/24", "10.0.11.0/24"]
+availability_zones       = ["us-east-1a", "us-east-1b"]
+instance_type_monitoring = "t3.medium"
+instance_type_workload   = "t3.micro"
+workload_instance_count  = 2
+admin_allowed_cidr       = "203.0.113.50/32" # Replace with your corporate/VPN CIDR
+key_name                 = ""                # Leave empty to generate a key pair via Terraform

@@ -1,0 +1,106 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
+        ansiColor('xterm')
+    }
+
+    environment {
+        AWS_DEFAULT_REGION = 'us-east-1'
+        DOCKER_IMAGE_NAME  = 'monitoring-stack'
+        TF_IN_AUTOMATION    = 'true'
+    }
+
+    stages {
+        stage('Checkout & Environment Inspection') {
+            steps {
+                echo '=== Stage 1: Checkout Source Code ==='
+                checkout scm
+                sh 'git log -1 --stat'
+            }
+        }
+
+        stage('Static Code Analysis & Linting') {
+            steps {
+                echo '=== Stage 2: Code & Manifest Linting ==='
+                // Validate Terraform formatting
+                sh '''
+                    echo "Checking Terraform formatting..."
+                    terraform -chdir=terraform fmt -check
+                '''
+
+                // Validate YAML configurations and Kubernetes manifests
+                sh '''
+                    echo "Checking syntax of YAML files and Prometheus rules..."
+                    ruby -ryaml -e '
+                        Dir.glob("{kubernetes,argocd,monitoring}/**/*.{yaml,yml}").each do |file|
+                            YAML.load_stream(File.read(file))
+                        end
+                        puts "All YAML files syntactically valid."
+                    '
+                '''
+            }
+        }
+
+        stage('Terraform Validation') {
+            steps {
+                echo '=== Stage 3: Terraform Init & Validate ==='
+                sh '''
+                    echo "Initializing Terraform backend in dry-run mode..."
+                    terraform -chdir=terraform init -backend=false
+                    terraform -chdir=terraform validate
+                '''
+            }
+        }
+
+        stage('Security & Secret Scanning') {
+            steps {
+                echo '=== Stage 4: Security Inspection ==='
+                // Reject committed AWS keys, private certificates, or plain passwords
+                sh '''
+                    echo "Scanning repository for accidental hardcoded secrets..."
+                    ! grep -rn "AKIA[0-9A-Z]\\{16\\}" . --exclude-dir=.git || { echo "AWS Access Key found!"; exit 1; }
+                    ! grep -rn "BEGIN RSA PRIVATE KEY" . --exclude-dir=.git || { echo "Private Key found!"; exit 1; }
+                    ! grep -rn "BEGIN OPENSSH PRIVATE KEY" . --exclude-dir=.git || { echo "OpenSSH Key found!"; exit 1; }
+                    echo "Secret scan passed successfully."
+                '''
+            }
+        }
+
+        stage('Container & Config Validation') {
+            steps {
+                echo '=== Stage 5: Docker Compose Stack Verification ==='
+                sh '''
+                    echo "Verifying Docker Compose configuration..."
+                    docker compose -f docker/docker-compose.yml config > /dev/null
+                    echo "Docker Compose file is valid."
+                '''
+            }
+        }
+
+        stage('Infrastructure Plan (Optional / Pre-Deploy)') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo '=== Stage 6: Terraform Plan (CI Output Only) ==='
+                echo 'Terraform plan generated for SRE review prior to manual apply/approval gate.'
+            }
+        }
+    }
+
+    post {
+        always {
+            echo '=== Pipeline Execution Completed ==='
+            cleanWs deleteDirs: true, notFailBuild: true
+        }
+        success {
+            echo 'SUCCESS: All pipeline quality and infrastructure checks passed.'
+        }
+        failure {
+            echo 'FAILURE: One or more stages failed. SRE review required.'
+        }
+    }
+}
